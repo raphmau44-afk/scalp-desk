@@ -202,9 +202,12 @@ main{flex:1;padding:26px;max-width:1520px;width:100%;margin:0 auto;}
 .alert.danger{background:rgba(240,85,106,.08);border-color:rgba(240,85,106,.3);color:var(--red);}
 
 /* PROP FIRM COMPARATOR */
-.firm-tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+.firm-tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;align-items:center;}
 .firm-tabs button{padding:11px 20px;border-radius:9px;border:1.5px solid var(--border);background:var(--panel-2);color:var(--text-dim);font-family:var(--mono);font-weight:600;font-size:14px;cursor:pointer;transition:all .15s;}
 .firm-tabs button.active{background:var(--amber);color:#0a0e14;border-color:var(--amber);}
+.firm-cell.editing{border-color:var(--amber-soft);}
+.firm-cell input{width:100%;background:var(--bg);border:1.5px solid var(--amber-soft);border-radius:7px;color:var(--text);font-family:var(--mono);font-size:15px;font-weight:600;padding:8px 10px;margin-top:5px;}
+.firm-cell input:focus{outline:none;}
 .firm-detail{display:none;}
 .firm-detail.active{display:block;}
 .firm-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
@@ -445,17 +448,19 @@ footer{padding:22px 26px;border-top:1px solid var(--border);text-align:center;co
 
   <!-- ===== PROP FIRMS ===== -->
   <section class="view" id="view-firms">
-    <div class="section-head"><h2>Comparateur prop firms</h2><p>Chaque firme a ses règles. Compte 50K pris en référence. Vérifie toujours les conditions officielles à jour.</p></div>
+    <div class="section-head"><h2>Comparateur prop firms</h2><p>Chaque firme a ses règles. Compte 50K pris en référence. Modifie les valeurs si une règle change.</p></div>
     <div class="card">
       <div class="firm-tabs" id="firmTabs">
         <button class="active" data-firm="apex">Apex</button>
         <button data-firm="tpt">Take Profit Trader</button>
         <button data-firm="topstep">Topstep</button>
+        <button class="btn btn-ghost" id="editFirmsBtn" style="margin-left:auto;padding:11px 18px;">✎ Modifier les valeurs</button>
+        <button class="btn btn-ghost" id="resetFirmsBtn" style="display:none;padding:11px 18px;">↺ Réinitialiser cette firme</button>
       </div>
       <div class="firm-detail active" data-firm="apex"></div>
       <div class="firm-detail" data-firm="tpt"></div>
       <div class="firm-detail" data-firm="topstep"></div>
-      <div class="note-box">Données indicatives susceptibles d'évoluer. Toujours confirmer sur le site officiel de la firme avant de prendre une décision. Le terme « challenge » désigne l'évaluation, « PA » le compte financé (Performance Account).</div>
+      <div class="note-box" id="firmsNote">Données indicatives susceptibles d'évoluer. Toujours confirmer sur le site officiel de la firme avant de prendre une décision. Le terme « challenge » désigne l'évaluation, « PA » le compte financé (Performance Account).</div>
     </div>
   </section>
 
@@ -725,8 +730,8 @@ document.querySelectorAll('#apexSelect button').forEach(b=>b.onclick=()=>{docume
 balEl.oninput=computeApex;peakEl.oninput=computeApex;
 (function(){const s=JSON.parse(localStorage.getItem('sd_apex')||'null');if(s){document.querySelectorAll('#apexSelect button').forEach(x=>x.classList.toggle('active',parseFloat(x.dataset.size)===s.size));apexDD=s.dd;balEl.value=s.bal;peakEl.value=s.peak;}computeApex();})();
 
-/* PROP FIRMS DATA */
-const firms={
+/* PROP FIRMS DATA (editable, persisted) */
+const defaultFirms={
   apex:{name:'Apex Trader Funding',cells:[
     ['Objectif (challenge 50K)','+3 000 $'],['Drawdown','2 500 $ · trailing EOD'],
     ['Type de drawdown','EOD par défaut (clôture), Intraday en option'],['Consistency','50% · sur compte financé uniquement'],
@@ -746,18 +751,57 @@ const firms={
     ['Phase','Trading Combine puis compte financé'],['Particularité','Pionnier du secteur, cadre pédagogique']
   ]}
 };
+function loadFirms(){
+  const saved=JSON.parse(localStorage.getItem('sd_firms')||'null');
+  if(!saved)return JSON.parse(JSON.stringify(defaultFirms));
+  // merge: keep saved values, fall back to defaults for any missing structure
+  const merged={};
+  Object.keys(defaultFirms).forEach(k=>{merged[k]=saved[k]?saved[k]:JSON.parse(JSON.stringify(defaultFirms[k]));});
+  return merged;
+}
+let firms=loadFirms();
+let firmsEditing=false;
+function activeFirmKey(){return document.querySelector('#firmTabs button.active[data-firm]')?.dataset.firm||'apex';}
 function renderFirms(){
   Object.keys(firms).forEach(k=>{
     const el=document.querySelector(`.firm-detail[data-firm="${k}"]`);
     let html=`<div class="firm-grid">`;
-    firms[k].cells.forEach(c=>{html+=`<div class="firm-cell"><div class="fl">${c[0]}</div><div class="fv ${c[1].match(/\d/)?'mono':''}">${c[1]}</div></div>`;});
+    firms[k].cells.forEach((c,i)=>{
+      if(firmsEditing){
+        html+=`<div class="firm-cell editing"><div class="fl">${c[0]}</div><input type="text" data-firm="${k}" data-idx="${i}" value="${c[1].replace(/"/g,'&quot;')}"></div>`;
+      }else{
+        html+=`<div class="firm-cell"><div class="fl">${c[0]}</div><div class="fv ${c[1].match(/\d/)?'mono':''}">${c[1]}</div></div>`;
+      }
+    });
     html+=`</div>`;el.innerHTML=html;
   });
+  if(firmsEditing){
+    document.querySelectorAll('.firm-cell input').forEach(inp=>{
+      inp.addEventListener('change',()=>{
+        const k=inp.dataset.firm,i=parseInt(inp.dataset.idx);
+        firms[k].cells[i][1]=inp.value;
+        localStorage.setItem('sd_firms',JSON.stringify(firms));
+      });
+    });
+  }
 }
-document.querySelectorAll('#firmTabs button').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('#firmTabs button').forEach(x=>x.classList.remove('active'));b.classList.add('active');
+document.querySelectorAll('#firmTabs button[data-firm]').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#firmTabs button[data-firm]').forEach(x=>x.classList.remove('active'));b.classList.add('active');
   document.querySelectorAll('.firm-detail').forEach(d=>d.classList.toggle('active',d.dataset.firm===b.dataset.firm));
 });
+document.getElementById('editFirmsBtn').onclick=()=>{
+  firmsEditing=!firmsEditing;
+  document.getElementById('editFirmsBtn').textContent=firmsEditing?'✓ Terminer l\'édition':'✎ Modifier les valeurs';
+  document.getElementById('resetFirmsBtn').style.display=firmsEditing?'inline-block':'none';
+  document.getElementById('firmsNote').textContent=firmsEditing?'Mode édition : clique dans un champ, modifie la valeur, elle se sauvegarde automatiquement. Termine l\'édition quand tu as fini.':'Données indicatives susceptibles d\'évoluer. Toujours confirmer sur le site officiel de la firme avant de prendre une décision. Le terme « challenge » désigne l\'évaluation, « PA » le compte financé (Performance Account).';
+  renderFirms();
+};
+document.getElementById('resetFirmsBtn').onclick=()=>{
+  const k=activeFirmKey();
+  firms[k]=JSON.parse(JSON.stringify(defaultFirms[k]));
+  localStorage.setItem('sd_firms',JSON.stringify(firms));
+  renderFirms();
+};
 renderFirms();
 
 /* JOURNAL */
